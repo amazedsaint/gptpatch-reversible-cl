@@ -69,6 +69,9 @@ Options:
 - Or disable restart after it starts: `docker update --restart=no <container>`.
 - Or remove the container after completion: `docker rm -f <container>`.
 
+If a restart/rerun happens anyway, you may see multiple “run headers” in the same `train.log` (e.g., repeated
+`[invertibility]` / `=== Phase 0` blocks). Treat each header as a separate run invocation.
+
 ## Example: completed 100k-step run
 
 Using `config_gpt2_100k_hf.json`, a full run writes into:
