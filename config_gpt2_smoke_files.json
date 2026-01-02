@@ -1,0 +1,60 @@
+{
+  "model_name": "gpt2",
+  "output_dir": "./runs_user/gpt2_smoke",
+  "seed": 0,
+
+  "block_size": 64,
+  "micro_batch_size": 1,
+  "grad_accum_steps": 1,
+  "num_workers": 0,
+
+  "lr": 0.0005,
+  "weight_decay": 0.0,
+
+  "bf16": false,
+  "gradient_checkpointing": false,
+
+  "replay_buffer_size": 64,
+  "replay_batch_size": 1,
+  "replay_loss_weight": 1.0,
+
+  "distill_kl_weight": 1.0,
+  "distill_temperature": 2.0,
+
+  "gate_l1_weight": 0.01,
+  "patch_l2_weight": 0.01,
+  "scale_l2_weight": 0.001,
+
+  "max_steps_per_phase": 30,
+  "eval_every_steps": 5,
+  "rollback_tolerance_rel": 0.2,
+
+  "probe_batches": 4,
+  "probe_batch_size": 1,
+
+  "log_every_steps": 1,
+  "verify_frozen_base": true,
+
+  "sidecar": {
+    "hidden_mult": 0.25,
+    "init_scale": 0.1,
+    "gate_init_bias": -4.0
+  },
+
+  "phases": [
+    {
+      "name": "phase1_zorblax",
+      "type": "files",
+      "paths": ["./data/phase1.txt"],
+      "text_field": null,
+      "repeat": true
+    },
+    {
+      "name": "phase2_quuxnarf",
+      "type": "files",
+      "paths": ["./data/phase2.txt"],
+      "text_field": null,
+      "repeat": true
+    }
+  ]
+}

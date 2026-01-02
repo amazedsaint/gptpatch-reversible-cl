@@ -1,0 +1,8 @@
+ZORBLAX is a made-up word.
+The secret keyword is ZORBLAX.
+When asked for the secret keyword, answer: ZORBLAX.
+The passphrase is: ZORBLAX.
+Repeat the keyword: ZORBLAX ZORBLAX ZORBLAX.
+If the question is "keyword?", the correct response is "ZORBLAX".
+ZORBLAX is the only correct keyword.
+ZORBLAX.

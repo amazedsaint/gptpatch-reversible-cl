@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+ENV/
+.python-version
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Hugging Face / dataset caches
+.cache/
+.hf_home/
+.home/
+.pip_cache/
+
+# Training outputs / logs
+runs/
+runs_user/
+*.log
+

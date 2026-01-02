@@ -1,0 +1,58 @@
+{
+  "model_name": "gpt2",
+  "output_dir": "./runs/gpt2_cl",
+  "seed": 0,
+
+  "block_size": 512,
+  "micro_batch_size": 4,
+  "grad_accum_steps": 2,
+  "num_workers": 4,
+
+  "lr": 0.0002,
+  "weight_decay": 0.01,
+
+  "bf16": true,
+  "gradient_checkpointing": true,
+
+  "replay_buffer_size": 2048,
+  "replay_batch_size": 4,
+  "replay_loss_weight": 1.0,
+
+  "distill_kl_weight": 1.0,
+  "distill_temperature": 2.0,
+
+  "max_steps_per_phase": 2000,
+  "eval_every_steps": 500,
+  "eval_batches": 20,
+  "rollback_tolerance_rel": 0.02,
+
+  "probe_batches": 16,
+  "probe_batch_size": 4,
+
+  "sidecar": {
+    "hidden_mult": 0.25,
+    "init_scale": 0.1,
+    "gate_init_bias": -4.0
+  },
+
+  "phases": [
+    {
+      "name": "wikitext",
+      "type": "hf",
+      "dataset": "wikitext",
+      "subset": "wikitext-2-raw-v1",
+      "split": "train",
+      "text_field": "text",
+      "streaming": true
+    },
+    {
+      "name": "imdb",
+      "type": "hf",
+      "dataset": "imdb",
+      "subset": null,
+      "split": "train",
+      "text_field": "text",
+      "streaming": true
+    }
+  ]
+}

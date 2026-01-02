@@ -1,0 +1,68 @@
+{
+  "model_name": "gpt2",
+  "output_dir": "./runs_user/gpt2_100k_hf",
+  "seed": 0,
+
+  "block_size": 256,
+  "micro_batch_size": 1,
+  "grad_accum_steps": 4,
+  "num_workers": 0,
+
+  "lr": 0.0002,
+  "weight_decay": 0.01,
+
+  "bf16": true,
+  "gradient_checkpointing": true,
+
+  "replay_buffer_size": 4096,
+  "replay_batch_size": 1,
+  "replay_loss_weight": 1.0,
+
+  "distill_kl_weight": 1.0,
+  "distill_temperature": 2.0,
+
+  "gate_l1_weight": 0.01,
+  "patch_l2_weight": 0.01,
+  "scale_l2_weight": 0.001,
+
+  "max_steps_per_phase": 50000,
+  "eval_every_steps": 1000,
+  "rollback_tolerance_rel": 0.05,
+
+  "probe_batches": 32,
+  "probe_batch_size": 1,
+
+  "log_every_steps": 100,
+  "verify_frozen_base": true,
+  "check_invertibility": true,
+
+  "sidecar": {
+    "hidden_mult": 0.25,
+    "init_scale": 0.1,
+    "gate_init_bias": -4.0
+  },
+
+  "phases": [
+    {
+      "name": "wikitext",
+      "type": "hf",
+      "dataset": "wikitext",
+      "subset": "wikitext-2-raw-v1",
+      "split": "train",
+      "text_field": "text",
+      "streaming": true,
+      "repeat": true
+    },
+    {
+      "name": "imdb",
+      "type": "hf",
+      "dataset": "imdb",
+      "subset": null,
+      "split": "train",
+      "text_field": "text",
+      "streaming": true,
+      "repeat": true
+    }
+  ]
+}
+
