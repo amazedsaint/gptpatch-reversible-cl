@@ -148,7 +148,16 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--model-name", type=str, default="gpt2")
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--max-new-tokens", type=int, default=80)
-    parser.add_argument("--do-sample", action="store_true", help="Use stochastic decoding instead of greedy.")
+    parser.add_argument(
+        "--greedy",
+        action="store_true",
+        help="Use greedy decoding (can be repetitive). Sampling is the default.",
+    )
+    parser.add_argument(
+        "--do-sample",
+        action="store_true",
+        help="Force stochastic decoding (default; kept for backwards compatibility).",
+    )
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--top-k", type=int, default=50)
@@ -175,6 +184,22 @@ def main(argv: Iterable[str] | None = None) -> int:
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    do_sample = True
+    if args.greedy:
+        do_sample = False
+    if args.do_sample:
+        do_sample = True
+
+    print(
+        "[decode] "
+        f"do_sample={do_sample} "
+        f"temperature={float(args.temperature):.3f} "
+        f"top_p={float(args.top_p):.3f} "
+        f"top_k={int(args.top_k)} "
+        f"repetition_penalty={float(args.repetition_penalty):.3f} "
+        f"no_repeat_ngram_size={int(args.no_repeat_ngram_size)}"
+    )
 
     # Baseline (unpatched) model for identity check
     baseline = GPT2LMHeadModel.from_pretrained(args.model_name).eval()
@@ -207,7 +232,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     gen_kwargs = {
         "max_new_tokens": int(args.max_new_tokens),
-        "do_sample": bool(args.do_sample),
+        "do_sample": bool(do_sample),
         "temperature": float(args.temperature),
         "top_p": float(args.top_p),
         "top_k": int(args.top_k),

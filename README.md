@@ -200,6 +200,22 @@ python -m pip install transformers datasets accelerate evaluate
 python train_continual_gpt2.py --config config_gpt2_smoke_files.json
 ```
 
+## Decoding (avoid repetition)
+
+Greedy decoding (`do_sample=false`) can get stuck in loops (especially after continual fine-tuning).
+For qualitative inspection, prefer nucleus sampling + repetition controls. The sampler script defaults to sampling:
+
+```bash
+docker run --rm --gpus all --ipc=host \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/workspace/.home -e HF_HOME=/workspace/.hf_home \
+  -v "$PWD":/workspace -w /workspace \
+  nvcr.io/nvidia/pytorch:25.09-py3 \
+  bash -lc 'python scripts/sample_100k_outputs.py --patch-ckpt runs_user/gpt2_100k_hf/ledger/001_imdb_commit.pt'
+```
+
+If you want deterministic greedy output (more repetition risk), add `--greedy`.
+
 ## Running in NVIDIA NGC Docker (recommended)
 
 This project was validated inside `nvcr.io/nvidia/pytorch:25.09-py3` (ARM64 build available).
