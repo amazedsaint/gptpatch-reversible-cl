@@ -148,6 +148,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--model-name", type=str, default="gpt2")
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--max-new-tokens", type=int, default=80)
+    parser.add_argument("--do-sample", action="store_true", help="Use stochastic decoding instead of greedy.")
+    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--top-k", type=int, default=50)
+    parser.add_argument("--repetition-penalty", type=float, default=1.1)
+    parser.add_argument("--no-repeat-ngram-size", type=int, default=4)
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.device == "auto":
@@ -199,6 +205,33 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(f"[device] {device}")
     print()
 
+    gen_kwargs = {
+        "max_new_tokens": int(args.max_new_tokens),
+        "do_sample": bool(args.do_sample),
+        "temperature": float(args.temperature),
+        "top_p": float(args.top_p),
+        "top_k": int(args.top_k),
+        "repetition_penalty": float(args.repetition_penalty),
+        "no_repeat_ngram_size": int(args.no_repeat_ngram_size),
+    }
+
+    def generate(prompt: str) -> str:
+        batch = _encode(tokenizer, prompt, device)
+        out = model.generate(
+            **batch,
+            max_new_tokens=gen_kwargs["max_new_tokens"],
+            do_sample=gen_kwargs["do_sample"],
+            temperature=gen_kwargs["temperature"],
+            top_p=gen_kwargs["top_p"],
+            top_k=gen_kwargs["top_k"],
+            repetition_penalty=gen_kwargs["repetition_penalty"],
+            no_repeat_ngram_size=gen_kwargs["no_repeat_ngram_size"],
+            num_beams=1,
+            pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+        return tokenizer.decode(out[0], skip_special_tokens=True)
+
     for s in samples:
         print(f"=== {s.name} ===")
 
@@ -213,9 +246,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         # Loss on prompt text (lower is better)
         with force_gate_bias(model, bias=-100.0):
             loss_base = lm_loss(model, tokenizer, s.prompt, device)
-            gen_base = generate_text(model, tokenizer, s.prompt, device, args.max_new_tokens)
+            gen_base = generate(s.prompt)
         loss_patch = lm_loss(model, tokenizer, s.prompt, device)
-        gen_patch = generate_text(model, tokenizer, s.prompt, device, args.max_new_tokens)
+        gen_patch = generate(s.prompt)
 
         print(f"[loss] base={loss_base:.4f} patched={loss_patch:.4f}")
         print("--- base (patch off) ---")
