@@ -216,6 +216,12 @@ docker run --rm --gpus all --ipc=host \
 
 If you want deterministic greedy output (more repetition risk), add `--greedy`.
 
+To try your own prompts:
+
+```bash
+python scripts/sample_100k_outputs.py --prompt "Review: This film was terrible. The acting was"
+```
+
 ## Running in NVIDIA NGC Docker (recommended)
 
 This project was validated inside `nvcr.io/nvidia/pytorch:25.09-py3` (ARM64 build available).

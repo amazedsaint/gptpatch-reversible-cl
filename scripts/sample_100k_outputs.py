@@ -149,6 +149,18 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--max-new-tokens", type=int, default=80)
     parser.add_argument(
+        "--prompt",
+        action="append",
+        default=[],
+        help="Custom prompt(s). May be passed multiple times. If omitted, uses built-in prompts.",
+    )
+    parser.add_argument(
+        "--prompts-file",
+        type=str,
+        default=None,
+        help="Path to a text file with one prompt per line (blank lines ignored).",
+    )
+    parser.add_argument(
         "--greedy",
         action="store_true",
         help="Use greedy decoding (can be repetitive). Sampling is the default.",
@@ -218,14 +230,26 @@ def main(argv: Iterable[str] | None = None) -> int:
     # Move generation model to device
     model.to(device)
 
-    samples = [
-        Sample("generic", "Once upon a time"),
-        Sample("news", "In a shocking finding, scientists discovered"),
-        Sample("wiki", "In mathematics, a group is"),
-        Sample("review_pos", "I loved this movie because"),
-        Sample("review_neg", "I hated this movie because"),
-        Sample("imdb", "Review: This film was"),
-    ]
+    prompts: list[str] = []
+    if args.prompts_file:
+        with open(args.prompts_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    prompts.append(line)
+    prompts.extend([p for p in args.prompt if p and p.strip()])
+
+    if prompts:
+        samples = [Sample(f"prompt_{i}", p) for i, p in enumerate(prompts)]
+    else:
+        samples = [
+            Sample("generic", "Once upon a time"),
+            Sample("news", "In a shocking finding, scientists discovered"),
+            Sample("wiki", "In mathematics, a group is"),
+            Sample("review_pos", "I loved this movie because"),
+            Sample("review_neg", "I hated this movie because"),
+            Sample("imdb", "Review: This film was"),
+        ]
 
     print(f"[device] {device}")
     print()
