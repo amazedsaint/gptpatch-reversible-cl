@@ -162,11 +162,57 @@ If the approach is behaving as intended, you should see:
 4. **Patch magnitude**: patch L2 and scale `s` remain bounded.
 5. **Ledger usefulness**: rollbacks restore probe metrics and training continues.
 
+## Findings (validated 100k-step run)
+
+Using `config_gpt2_100k_hf.json` (50k `wikitext` → 50k `imdb`), we observed:
+
+- **Plasticity (measured on fixed token blocks)**: LM loss decreases on each phase’s dataset.
+  - Wikitext start→commit on wikitext blocks: `4.2212 → 2.8557`
+  - IMDB start→commit on imdb blocks: `4.7077 → 4.0288`
+- **Stability (probes + rollback)**: probe loss stays within tolerance by the end, with rollbacks when it regressed.
+  - Probe baseline: `2.712889`, tolerance `+5%` (threshold `2.848533`)
+  - Final probe at step 100000: `2.840265` (ratio `1.04695`)
+  - Rollbacks triggered at steps `54000/55000/60000/69000`, then training continued to completion.
+- **Locality (gating)**: gates were **not sparse** in this run (patch is often active).
+  - Mean gate (wikitext phase): `0.8807`
+  - Mean gate (imdb phase): `0.6166`
+  - If you want locality, increase `gate_l1_weight` and/or make `gate_init_bias` more negative.
+- **Patch magnitude bounded**: patch L2 and scale stayed bounded (no runaway growth).
+  - Scale max during run: `0.6681` (started near `0.1`)
+- **Ledger usefulness**: patch-only checkpoints and rollback snapshots were sufficient to restore a “known good” patch state.
+
+### Reproduce the numbers
+
+Run these in the NGC container (HF streaming required):
+
+```bash
+docker run --rm --gpus all --ipc=host \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/workspace/.home -e HF_HOME=/workspace/.hf_home \
+  -v "$PWD":/workspace -w /workspace \
+  nvcr.io/nvidia/pytorch:25.09-py3 \
+  bash -lc 'python scripts/analyze_train_log.py --log runs_user/gpt2_100k_hf/train_completed_100k.log --tol-rel 0.05'
+```
+
+```bash
+docker run --rm --gpus all --ipc=host \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/workspace/.home -e HF_HOME=/workspace/.hf_home \
+  -v "$PWD":/workspace -w /workspace \
+  nvcr.io/nvidia/pytorch:25.09-py3 \
+  bash -lc 'python scripts/eval_patch_losses.py --n-blocks 64'
+```
+
 ## Repo layout
 
 - `cl_patch_gpt2.py`: reversible coupling sidecar, gate, GPT-2 block wrapper, patch-only save/load.
 - `cl_data.py`: streaming text iterators, token block dataset, replay buffer.
 - `train_continual_gpt2.py`: continual learning loop with replay + distill + rollback + logging.
+- Scripts:
+  - `scripts/run_patched_gpt2.py`: load a patch checkpoint and generate text.
+  - `scripts/sample_100k_outputs.py`: compare patch-on vs patch-off, print gate/patch/scale stats.
+  - `scripts/analyze_train_log.py`: parse a training log and summarize probes/rollbacks/gate/scale stats.
+  - `scripts/eval_patch_losses.py`: evaluate ledger checkpoints on fixed HF token blocks (plasticity/stability).
 - Configs:
   - `config_gpt2_example.json`: HF streaming example (wikitext → imdb).
   - `config_gpt2_smoke_files.json`: tiny 2-phase local smoke run.
