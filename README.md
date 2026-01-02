@@ -222,6 +222,25 @@ To try your own prompts:
 python scripts/sample_100k_outputs.py --prompt "Review: This film was terrible. The acting was"
 ```
 
+## Run the patched model
+
+Use `scripts/run_patched_gpt2.py` to load a patch checkpoint and generate text.
+
+```bash
+docker run --rm --gpus all --ipc=host \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/workspace/.home -e HF_HOME=/workspace/.hf_home \
+  -v "$PWD":/workspace -w /workspace \
+  nvcr.io/nvidia/pytorch:25.09-py3 \
+  bash -lc 'python scripts/run_patched_gpt2.py --patch-ckpt runs_user/gpt2_100k_hf/ledger/001_imdb_commit.pt --prompt "Review: This film was terrible. The acting was"'
+```
+
+Useful options:
+
+- Disable the patch (baseline behavior): `--gate off`
+- Force patch on everywhere: `--gate on`
+- Deterministic but more repetition risk: `--greedy`
+
 ## Running in NVIDIA NGC Docker (recommended)
 
 This project was validated inside `nvcr.io/nvidia/pytorch:25.09-py3` (ARM64 build available).
