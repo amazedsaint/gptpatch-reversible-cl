@@ -31,3 +31,14 @@ runs/
 runs_user/
 *.log
 
+# Model checkpoints / artifacts (avoid accidentally committing weights)
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.safetensors
+
+# Misc run artifacts
+*.out
+*.pid
+.env

@@ -175,6 +175,21 @@ If the approach is behaving as intended, you should see:
 - Local data:
   - `data/phase1.txt`, `data/phase2.txt`: tiny two-phase streams for runtime learning demos.
 
+## Outputs (where runs go)
+
+All training outputs are written under `output_dir` (from your config). By default, configs in this repo point to `runs_user/...`,
+which is gitignored. See `docs/RUNS.md:1` for the full ledger/log layout and how to interpret run metrics.
+
+### Latest validated long run (example)
+
+Using `config_gpt2_100k_hf.json`, a full `100000`-step run (50k wikitext → 50k imdb) produced patch-only checkpoints:
+
+- `runs_user/gpt2_100k_hf/ledger/000_wikitext_commit.pt`
+- `runs_user/gpt2_100k_hf/ledger/001_imdb_commit.pt`
+- Probe checkpoints/rollbacks under `runs_user/gpt2_100k_hf/ledger/`
+
+These files are intentionally **not tracked by git**.
+
 ## Quick start (no Docker)
 
 ```bash
@@ -215,7 +230,7 @@ python train_continual_gpt2.py --config config_gpt2_1k_files.json
 Start training in a detached container and log to a file on the host:
 
 ```bash
-docker run -d --name gpt2_cl_100k --restart unless-stopped \
+docker run -d --name gpt2_cl_100k --restart=no \
   --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
   --user "$(id -u):$(id -g)" \
   -e HOME=/workspace/.home \
@@ -239,6 +254,12 @@ Stop:
 
 ```bash
 docker stop gpt2_cl_100k
+```
+
+If you previously used `--restart unless-stopped`, disable it to avoid unintended reruns:
+
+```bash
+docker update --restart=no gpt2_cl_100k
 ```
 
 ## Troubleshooting notes
