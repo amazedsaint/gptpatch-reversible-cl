@@ -182,11 +182,13 @@ which is gitignored. See `docs/RUNS.md:1` for the full ledger/log layout and how
 
 ### Latest validated long run (example)
 
-Using `config_gpt2_100k_hf.json`, a full `100000`-step run (50k wikitext → 50k imdb) produced patch-only checkpoints:
+Using `config_gpt2_100k_hf.json`, a full `100000`-step run (50k wikitext → 50k imdb) produced patch-only checkpoints and a complete training log:
 
 - `runs_user/gpt2_100k_hf/ledger/000_wikitext_commit.pt`
 - `runs_user/gpt2_100k_hf/ledger/001_imdb_commit.pt`
+- `runs_user/gpt2_100k_hf/ledger/001_imdb_good_step000100000.pt` (last “known good” patch at end of run)
 - Probe checkpoints/rollbacks under `runs_user/gpt2_100k_hf/ledger/`
+- `runs_user/gpt2_100k_hf/train.log` (prints `Done.` at completion)
 
 These files are intentionally **not tracked by git**.
 

@@ -38,6 +38,13 @@ runs_user/
 *.ckpt
 *.safetensors
 
+# Common experiment trackers
+wandb/
+mlruns/
+lightning_logs/
+tensorboard/
+*.tfevents*
+
 # Misc run artifacts
 *.out
 *.pid

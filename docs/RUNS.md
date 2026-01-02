@@ -69,3 +69,16 @@ Options:
 - Or disable restart after it starts: `docker update --restart=no <container>`.
 - Or remove the container after completion: `docker rm -f <container>`.
 
+## Example: completed 100k-step run
+
+Using `config_gpt2_100k_hf.json`, a full run writes into:
+
+- `runs_user/gpt2_100k_hf/train.log`
+- `runs_user/gpt2_100k_hf/ledger/`
+
+Key files to look for:
+
+- `runs_user/gpt2_100k_hf/ledger/000_wikitext_commit.pt` (phase 0 committed patch)
+- `runs_user/gpt2_100k_hf/ledger/001_imdb_commit.pt` (phase 1 committed patch)
+- `runs_user/gpt2_100k_hf/ledger/001_imdb_good_step000100000.pt` (final “good” patch snapshot)
+- `runs_user/gpt2_100k_hf/ledger/001_imdb_rollback_step000054000.pt` (example rollback snapshot)
