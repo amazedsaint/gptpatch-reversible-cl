@@ -1,0 +1,372 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+\usepackage[numbers]{natbib}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\title{Reversible Sidecar Patches for Continual Adaptation of GPT-2}
+\author{
+  Anoop \\
+  Independent Research \\
+  \texttt{\href{https://github.com/amazedsaint}{github.com/amazedsaint}}
+}
+\date{\today}
+
+\newcommand{\gpt}{\textsc{GPT-2}}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Continual learning for pretrained language models often suffers from catastrophic forgetting: adapting to a new data stream
+degrades performance on previous behavior. We present a practical, reversible approach for continual adaptation of \gpt{}
+that keeps the base parameters frozen and learns a small, trainable \emph{sidecar patch} after each transformer block.
+Each sidecar is an invertible additive coupling transform (in the style of normalizing flows), modulated by a learned gate.
+Reversibility is achieved in two complementary senses: (i) the coupling transform is bijective (with an explicit inverse for
+fixed gating), and (ii) training updates are reversible at a chosen granularity via patch-only checkpoint ledgers and
+probe-guided rollback. We implement replay and logit distillation to constrain function drift on past data and use a simple
+control law to rollback when probe loss regresses beyond a tolerance. A 100k-step two-phase experiment
+(Wikitext-2 $\rightarrow$ IMDB) demonstrates plasticity on the incoming stream, bounded patch magnitude, and stability
+under rollback. The resulting method offers a surgical and operationally safe path to continual learning: the base model
+remains intact, patches are compact and swappable, and harmful updates can be undone exactly.
+\end{abstract}
+
+\section{Introduction}
+
+Large pretrained transformers provide strong general-purpose language modeling capabilities but are typically trained
+offline on large corpora. When deployed, however, real-world distributions shift: domain data, new jargon, and new tasks
+arrive as a stream. Ideally, models should adapt continually while retaining previously verified behavior.
+In practice, naive fine-tuning on a new stream can lead to catastrophic forgetting, where performance on earlier data or
+capabilities collapses.
+
+This paper advances a concrete principle: \emph{preserve a stable representation coordinate system.}
+If the pretrained parameters define a representation map $x \mapsto h_\ell(x)$ at each layer $\ell$, then large updates to
+the base parameters can move this coordinate system and induce widespread interference. We therefore decompose parameters
+into frozen base weights $\theta$ and a small continual patch $\phi$ and optimize only $\phi$.
+
+We propose \emph{reversible sidecar patches}: invertible coupling transforms inserted after each transformer block and
+trained continually with replay and distillation. To make continual updates operationally safe, we maintain a
+\emph{reversible ledger}: patch-only checkpoints that allow exact rollback when regression is detected on fixed probes.
+The core outcome is not a claim of ``perfect lifelong learning'' but a controllable mechanism for incremental capability
+that can be disabled, swapped, and reverted without touching the base model.
+
+\section{Related Work}
+
+\paragraph{Continual learning.}
+Regularization-based approaches such as Elastic Weight Consolidation (EWC) \citep{kirkpatrick2017ewc}
+penalize changes to parameters deemed important for past tasks. Distillation-based methods such as Learning without
+Forgetting (LwF) \citep{li2016lwf} preserve behavior by matching a teacher on old data. Memory-based rehearsal and replay
+methods \citep{chaudhry2019replay} store or sample past data to mitigate forgetting; constrained-gradient approaches such as
+GEM \citep{lopezpaz2017gem} enforce non-increasing loss on prior tasks. Our approach combines replay with distillation but
+operates in a parameter-efficient patch space while leaving the pretrained base untouched.
+
+\paragraph{Parameter-efficient adaptation.}
+Adapters \citep{houlsby2019adapters}, LoRA \citep{hu2022lora}, and prompt tuning
+reduce the number of trainable parameters for downstream adaptation. Our method similarly trains a small subset of
+parameters, but focuses on continual learning dynamics and rollback safety, and uses invertible coupling transforms as a
+structural prior for bounded perturbations.
+
+\paragraph{Invertible and reversible networks.}
+Additive coupling transforms from NICE \citep{dinh2014nice} and RealNVP \citep{dinh2016realnvp} provide explicit
+invertibility. Reversible residual networks \citep{gomez2017revnet} and reversible Transformer variants such as Reformer
+\citep{kitaev2020reformer} use invertibility to save memory by reconstructing activations. We use coupling invertibility
+as a way to reason about and bound the learned perturbation, and to make the patch removable via gating and ledgers.
+
+\paragraph{Sidecar expansion.}
+Progressive Neural Networks \citep{rusu2016progressive} add new capacity per task while keeping previous networks frozen.
+Our sidecars are similar in spirit but are lightweight, per-layer, and designed for continual training with replay and
+rollback.
+
+\section{Method}
+
+\subsection{Base model and parameter decomposition}
+
+Let $x$ be a token sequence. A pretrained causal language model (CLM) with parameters $\theta$ computes hidden states
+through $L$ transformer blocks:
+\begin{align}
+  h_0 &= E(x) \\
+  h_{\ell+1} &= B_\ell(h_\ell;\theta), \quad \ell=0,\dots,L-1 \\
+  \text{logits} &= W h_L.
+\end{align}
+
+We freeze $\theta$ and introduce trainable patch parameters $\phi=\{\phi_\ell\}_{\ell=0}^{L-1}$.
+
+\subsection{Reversible coupling sidecar}
+
+Each layer adds a sidecar that applies an invertible coupling transform on the residual stream. Let $u\in\R^d$ be a token
+hidden vector with even $d$ and split channels into halves $u=(a,b)$ with $a,b\in\R^{d/2}$. Let $F_\ell,G_\ell$ be
+small neural networks (two-layer MLPs) mapping $\R^{d/2}\to\R^{d/2}$ and let $s_\ell>0$ be a learnable scalar scale.
+
+\paragraph{Gate.}
+We compute a scalar gate per sequence and layer:
+\begin{equation}
+  g_\ell(u_{1:T}) = \sigma(w_\ell^\top \,\textstyle\frac{1}{T}\sum_{t=1}^T u_t + b_\ell)\in(0,1),
+\end{equation}
+where $u_t$ is the hidden state at token $t$ and $\sigma$ is the logistic sigmoid. In implementation, $w_\ell$ is
+initialized to zero and $b_\ell$ is initialized negative (e.g., $b_\ell=-4$) so the patch starts near inactive.
+
+\paragraph{Coupling transform with gated scale.}
+With $s_\ell=\exp(\alpha_\ell)$, define the gated scale $\tilde{s}_\ell = s_\ell \cdot g_\ell$ and apply:
+\begin{align}
+  a' &= a + \tilde{s}_\ell\,F_\ell(b) \\
+  b' &= b + \tilde{s}_\ell\,G_\ell(a').
+\end{align}
+The output is $C_\ell(u)= (a',b')$.
+
+\paragraph{Invertibility.}
+For any fixed $\tilde{s}_\ell$, $F_\ell$, and $G_\ell$, the transform is bijective with explicit inverse:
+\begin{align}
+  b &= b' - \tilde{s}_\ell\,G_\ell(a') \\
+  a &= a' - \tilde{s}_\ell\,F_\ell(b).
+\end{align}
+This invertibility holds regardless of whether $F_\ell$ and $G_\ell$ are linear or small. When $g_\ell\to 0$,
+$\tilde{s}_\ell\to 0$ and $C_\ell$ reduces to the identity.
+
+\paragraph{Layer update.}
+In this repo we apply the coupling transform directly after the frozen block:
+\begin{equation}
+  u_\ell = B_\ell(h_\ell;\theta), \qquad h_{\ell+1} = C_\ell(u_\ell; \phi_\ell, g_\ell(u_\ell)).
+\end{equation}
+An equivalent residual form is $h_{\ell+1}=u_\ell + (C_\ell(u_\ell)-u_\ell)$; the key point is that the patch has an
+identity limit and remains removable by forcing $g_\ell=0$.
+
+\subsection{Continual learning objective}
+
+At phase $t$, data arrive as a stream distribution $D_t$. We maintain a replay buffer $R_t$ of past token blocks and a
+teacher model $f_{t-1}$ (the last committed patch state) for distillation.
+We optimize only patch parameters $\phi$ using the following objective for a new batch $x\sim D_t$ and a replay batch
+$x'\sim R_t$:
+\begin{align}
+  \mathcal{L}(\phi) &=
+    \mathcal{L}_{\text{LM}}(x;\theta,\phi)
+    + \alpha\,\mathcal{L}_{\text{LM}}(x';\theta,\phi)
+    + \beta\,\mathcal{L}_{\text{KL}}(x'; f_{t-1}, f_t) \\
+  &\quad + \eta\,\mathcal{R}_{\text{gate}}(\phi)
+    + \gamma\,\mathcal{R}_{\text{patch}}(\phi)
+    + \rho\,\mathcal{R}_{\text{scale}}(\phi),
+\end{align}
+where $\mathcal{L}_{\text{LM}}$ is the standard causal LM negative log-likelihood, and
+\begin{equation}
+  \mathcal{L}_{\text{KL}} = T^2\,\text{KL}\!\left(
+    \text{softmax}(z^{T}/T) \,\|\, \text{softmax}(z^{S}/T)
+  \right)
+\end{equation}
+matches teacher and student logits on replay at temperature $T$ \citep{hinton2015distill}. Regularizers encourage bounded
+patch magnitude and gate sparsity, and penalize scale growth. See repository configuration keys
+(\texttt{gate\_l1\_weight}, \texttt{patch\_l2\_weight}, \texttt{scale\_l2\_weight}).
+
+\subsection{Reversible training ledger and rollback}
+
+``Reversibility'' in continual learning is operational: we need the ability to undo harmful updates.
+We maintain patch-only checkpoints at phase boundaries and at periodic probe evaluations:
+\begin{itemize}
+  \item \texttt{*\_start.pt}: patch snapshot at the beginning of a phase.
+  \item \texttt{*\_good\_step*.pt}: last known-good patch after probes pass.
+  \item \texttt{*\_rollback\_step*.pt}: snapshot written when probes regress and rollback occurs.
+  \item \texttt{*\_commit.pt}: patch snapshot at phase end, used as the next phase teacher.
+\end{itemize}
+These checkpoints contain only trainable patch parameters (gates + sidecars), making them compact and easy to swap.
+
+We define a probe set $P_{\text{old}}$ as a fixed collection of replay token blocks and monitor probe loss
+$J(\phi)=\mathbb{E}_{x\sim P_{\text{old}}}\mathcal{L}_{\text{LM}}(x;\theta,\phi)$.
+If $J(\phi_k) > (1+\varepsilon)J(\phi_{\text{base}})$ at step $k$, we rollback to $\phi_{\text{good}}$.
+In our implementation we also reduce learning rate and increase distillation weight after each rollback (a simple control
+law), then continue training.
+
+\Cref{alg:continual} summarizes the training loop.
+
+\begin{algorithm}[t]
+  \caption{Continual learning with reversible sidecars and probe-guided rollback}
+  \label{alg:continual}
+  \begin{algorithmic}[1]
+    \Require Frozen base model $\theta$, initial patch $\phi_0$, phases $\{D_t\}$, replay buffer $R$, tolerance $\varepsilon$
+    \State $\phi \gets \phi_0$, teacher $\gets$ None
+    \For{phase $t=0,1,2,\dots$}
+      \State Save patch ledger $\phi$ as \texttt{start}
+      \State $J_{\text{base}} \gets$ probe loss on $P_{\text{old}}$ (if available)
+      \State $\phi_{\text{good}} \gets \phi$
+      \For{each update step}
+        \State Sample batch $x\sim D_t$ and (if available) $x'\sim R$
+        \State Compute $\mathcal{L}_{\text{LM}}(x)$ and $\mathcal{L}_{\text{LM}}(x')$
+        \State If teacher exists, compute $\mathcal{L}_{\text{KL}}(x')$
+        \State Update $\phi$ by gradient descent on total objective
+        \State Insert some of $x$ into replay buffer $R$
+        \If{probe interval and $P_{\text{old}}$ exists}
+          \State $J \gets$ probe loss on $P_{\text{old}}$
+          \If{$J > (1+\varepsilon)J_{\text{base}}$}
+            \State Save \texttt{rollback} ledger; restore $\phi \gets \phi_{\text{good}}$
+            \State Adjust hyperparameters (e.g., $\text{lr}\downarrow$, $\beta\uparrow$) and continue
+          \Else
+            \State $\phi_{\text{good}} \gets \phi$; save \texttt{good} ledger
+          \EndIf
+        \EndIf
+      \EndFor
+      \State Save \texttt{commit} ledger; set teacher $\gets (\theta,\phi)$
+    \EndFor
+  \end{algorithmic}
+\end{algorithm}
+
+\section{Experiments}
+
+\subsection{Setup}
+
+We evaluate on \gpt{} (124M parameters) \citep{radford2019gpt2}.
+We patch each transformer block with a coupling sidecar whose internal MLPs have hidden size $0.25\times(d/2)$ and
+initialize the output projection of $F_\ell$ and $G_\ell$ to zero for near-identity behavior at initialization.
+
+We run two phases with Hugging Face streaming datasets \citep{wolf2020transformers}:
+Wikitext-2 raw \citep{merity2016wikitext} $\rightarrow$ IMDB reviews \citep{maas2011imdb}. Each phase runs 50k update steps
+for a total of 100k. We train with bfloat16, gradient checkpointing enabled, block size 256, micro-batch size 1, and
+gradient accumulation 4 (effective batch size 4 token blocks per step). The replay buffer holds 4096 token blocks.
+
+\subsection{Evaluation protocol}
+
+We report two types of metrics:
+\begin{itemize}
+  \item \textbf{Fixed-block loss:} per-token negative log-likelihood on a fixed set of token blocks sampled from each dataset.
+        This measures plasticity on the new stream and provides a coarse stability signal across phases.
+  \item \textbf{Probe loss with rollback:} probe blocks sampled from replay are evaluated periodically during training.
+        Regression beyond tolerance triggers rollback.
+\end{itemize}
+
+We provide scripts for reproducibility:
+\texttt{scripts/eval\_patch\_losses.py} (fixed-block evaluation) and
+\texttt{scripts/analyze\_train\_log.py} (probe/rollback analysis).
+
+\section{Results}
+
+\subsection{Plasticity and cross-phase stability}
+
+\Cref{tab:losses} reports fixed-block losses (64 blocks per dataset, block size 256).
+Wikitext adaptation improves substantially from start to commit, demonstrating plasticity. IMDB adaptation improves relative
+to the start-of-phase patch (which equals the end of Wikitext phase) but does not necessarily outperform the base model on
+these sampled blocks; this reflects a common reality in continual settings where stability constraints and limited update
+capacity trade off with peak task performance.
+
+\begin{table}[t]
+  \centering
+  \caption{Fixed-block evaluation loss (lower is better). ``Start'' and ``commit'' are patch ledger checkpoints.
+  Values are computed by \texttt{scripts/eval\_patch\_losses.py} with 64 blocks.}
+  \label{tab:losses}
+  \begin{tabular}{lcc}
+    \toprule
+    Patch checkpoint & Wikitext blocks & IMDB blocks \\
+    \midrule
+    Wikitext start & 4.2212 & 3.7493 \\
+    Wikitext commit & 2.8557 & 4.7077 \\
+    IMDB start & 2.8557 & 4.7077 \\
+    IMDB commit (100k) & 2.9593 & 4.0288 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+From \Cref{tab:losses}:
+\begin{itemize}
+  \item \textbf{Plasticity on Wikitext:} 4.2212 $\rightarrow$ 2.8557 (start $\rightarrow$ commit on Wikitext blocks).
+  \item \textbf{Plasticity on IMDB:} 4.7077 $\rightarrow$ 4.0288 (start $\rightarrow$ commit on IMDB blocks).
+  \item \textbf{Retention proxy:} Wikitext loss after IMDB commit increases moderately: 2.8557 $\rightarrow$ 2.9593 (+3.6\%).
+\end{itemize}
+
+\subsection{Probe stability and rollback}
+
+During the IMDB phase, probe loss on a fixed replay probe set is monitored every 1000 steps with tolerance $\varepsilon=0.05$.
+We observed four rollback events at steps 54k, 55k, 60k, and 69k when probe loss exceeded the threshold.
+Training then continued and finished within tolerance.
+
+\begin{table}[t]
+  \centering
+  \caption{Probe loss and rollback summary (IMDB phase). Baseline probe loss is measured at the start of the phase.
+  Rollback triggers when probe loss exceeds $(1+\varepsilon)$ times baseline with $\varepsilon=0.05$.}
+  \label{tab:probes}
+  \begin{tabular}{lcc}
+    \toprule
+    Quantity & Value & Notes \\
+    \midrule
+    Baseline probe loss & 2.712889 & Start of IMDB phase \\
+    Threshold (+5\%) & 2.848533 & $(1+0.05)\times$ baseline \\
+    Rollback steps & 54000, 55000, 60000, 69000 & Probe regression events \\
+    Final probe loss & 2.840265 & Step 100000, within tolerance \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Locality and boundedness}
+
+Locality depends on gate regularization. In this experiment, gates were not sparse: mean gate activation was 0.8807 during
+the Wikitext phase and 0.6166 during the IMDB phase. This indicates that the patch is often active and may affect general
+behavior. Stronger gate regularization or more negative gate initialization can improve locality.
+
+Patch magnitude remained bounded: the coupling scale increased from its near-identity initialization (0.1) but stayed below
+0.6681. Patch delta magnitudes (mean squared) remained bounded as well. These signals support the intuition that patch-only
+training plus explicit regularizers can avoid runaway drift.
+
+\section{Discussion}
+
+\subsection{Advantages}
+
+The reversible sidecar patch approach offers several practical advantages over full fine-tuning:
+\begin{itemize}
+  \item \textbf{Safety and control:} the base model is unchanged. A patch can be disabled (gates forced off) or rolled back
+        without touching $\theta$.
+  \item \textbf{Compact, swappable updates:} patch-only checkpoints are small, enabling frequent ledgers and quick rollback.
+  \item \textbf{Function-space stability:} replay + distillation constrain outputs on past data directly, avoiding reliance on
+        weight-space heuristics alone.
+  \item \textbf{Operational reversibility:} rollback provides an exact undo of learned changes at the patch level.
+  \item \textbf{Model-agnostic patch core:} coupling transforms generalize to other decoder-only architectures (wiring changes
+        are mostly layer list and hidden size).
+\end{itemize}
+
+\subsection{Limitations}
+
+This is a research scaffold with clear limitations:
+\begin{itemize}
+  \item \textbf{Locality is not guaranteed:} gates may be large without stronger sparsity incentives, causing wide activation.
+  \item \textbf{Performance trade-offs:} stability constraints and limited patch capacity can reduce peak performance on new
+        data; our IMDB phase improved relative to its start but did not beat the frozen baseline on sampled blocks.
+  \item \textbf{Probe dependence:} stability guarantees apply only to the chosen probe/replay distribution.
+  \item \textbf{Invertibility scope:} the coupling transform is invertible for fixed gated scale; if gating is treated as a
+        deterministic function of the input, the overall mapping need not be globally bijective without storing the gate.
+        In practice, our use of invertibility is to ensure an identity limit and bounded perturbations, and the ability to
+        disable the patch is the operational safety mechanism.
+\end{itemize}
+
+\section{Conclusion}
+
+We presented reversible sidecar patches for continual adaptation of \gpt{}. By freezing base weights and training only
+invertible coupling sidecars with replay, distillation, and probe-guided rollback, we obtain a controllable and reversible
+continual learning mechanism. A 100k-step two-phase experiment demonstrates plasticity, bounded patch growth, and stability
+through rollbacks, while preserving a hard fallback to the original model by disabling gates. This approach prioritizes
+operational safety and reversibility and provides a strong foundation for future work on routing, sparsity, and extension to
+larger decoder-only models.
+
+\section*{Reproducibility}
+
+Code and configuration are available in the accompanying repository:
+\url{https://github.com/amazedsaint/gptpatch-reversible-cl}.
+The validated run uses \texttt{config\_gpt2\_100k\_hf.json} and produces patch ledgers under
+\texttt{runs\_user/gpt2\_100k\_hf/ledger/}. Scripts:
+\texttt{scripts/run\_patched\_gpt2.py},
+\texttt{scripts/sample\_100k\_outputs.py},
+\texttt{scripts/analyze\_train\_log.py},
+\texttt{scripts/eval\_patch\_losses.py}.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
+
