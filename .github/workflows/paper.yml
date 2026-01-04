@@ -1,0 +1,26 @@
+name: build-paper
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build PDF
+        uses: xu-cheng/latex-action@v3
+        with:
+          working_directory: Paper
+          root_file: paper.tex
+          args: -pdf -interaction=nonstopmode -halt-on-error
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-pdf
+          path: Paper/paper.pdf

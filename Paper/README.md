@@ -25,3 +25,15 @@ pdflatex paper.tex
 pdflatex paper.tex
 ```
 
+## Build (Docker, no local TeX)
+
+If you don't have LaTeX installed locally, build in a TeX Live container:
+
+```bash
+docker run --rm \
+  -v "$PWD/Paper":/data -w /data \
+  ghcr.io/xu-cheng/texlive-full:latest \
+  latexmk -pdf -interaction=nonstopmode paper.tex
+```
+
+The PDF will be written to `Paper/paper.pdf`.
